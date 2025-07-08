@@ -79,7 +79,7 @@ BEGIN
                     iStream_1.Row <= row;
                     iStream_1.Column <= col;
                     iStream_1.Filter <= 0;
-                    iData_1(0) <= 127-Image_Example(row, col)(0); -- Example data
+                    iData_1(0) <= Image_Example(row, col); -- Example data
                     wait for clk_period;
                     iStream_1.Data_Valid <= '0';
                     wait for clk_period;
