@@ -96,9 +96,9 @@ SIGNAL ROM : ROM_Array := Init_ROM(Weights, Outputs, Inputs, Calc_Cycles*Input_C
 SIGNAL ROM_Addr  : NATURAL range 0 to Calc_Cycles*Input_Cycles-1;
 SIGNAL ROM_Data  : STD_LOGIC_VECTOR(Calc_Outputs * Calc_Steps * CNN_Weight_Resolution - 1 downto 0);
 
-CONSTANT value_max     : NATURAL := 2**(CNN_Value_Resolution)-1;
+CONSTANT value_max     : NATURAL := 2**(CNN_Value_Resolution-1)-1;
     --Maximum bits for sum of convolution
-CONSTANT bits_max      : NATURAL := CNN_Value_Resolution + max_val(Offset, 0) + integer(ceil(log2(real(Inputs + 1))));
+CONSTANT bits_max      : NATURAL := CNN_Value_Resolution - 1 + max_val(Offset, 0) + integer(ceil(log2(real(Inputs + 1))));
 
     --RAM for colvolution sum
 type sum_set_t is array (0 to Calc_Outputs-1) of SIGNED(bits_max downto 0);
@@ -112,7 +112,7 @@ SIGNAL SUM_Wr_Ena   : STD_LOGIC := '1';
 
     --RAM for output values
 CONSTANT OUT_RAM_Elements : NATURAL := min_val(Calc_Cycles,Output_Cycles);
-type OUT_set_t is array (0 to Outputs/OUT_RAM_Elements-1) of SIGNED(CNN_Value_Resolution-CNN_Value_Negative downto 0);
+type OUT_set_t is array (0 to Outputs/OUT_RAM_Elements-1) of SIGNED(CNN_Value_Resolution-1 downto 0);
 type OUT_ram_t is array (natural range <>) of OUT_set_t;
 SIGNAL OUT_RAM      : OUT_ram_t(0 to OUT_RAM_Elements-1) := (others => (others => (others => '0')));
 SIGNAL OUT_Rd_Addr  : NATURAL range 0 to OUT_RAM_Elements-1;
@@ -134,7 +134,7 @@ SIGNAL Out_Ready         : STD_LOGIC;         --True if the output data can be r
 CONSTANT Group_Sum_Results    : NATURAL := integer(ceil(real(Calc_Steps)/real(CNN_Mult_Sum_Group)));
 CONSTANT Real_Group_Sum_Size  : NATURAL := Calc_Steps/Group_Sum_Results;
 CONSTANT Group_Sum_Bits       : NATURAL := integer(ceil(log2(real(Real_Group_Sum_Size)))); -- Additional Bits to calculate sum of first values in group
-CONSTANT Group_Sum_Total_Bits : NATURAL := Bool_Select(CNN_Shift_Before_Sum, bits_max+1, CNN_Value_Resolution+CNN_Weight_Resolution)+Group_Sum_Bits;
+CONSTANT Group_Sum_Total_Bits : NATURAL := Bool_Select(CNN_Shift_Before_Sum, bits_max+1, CNN_Value_Resolution+CNN_Weight_Resolution-1)+Group_Sum_Bits;
 type prod_array_t is array (0 to Calc_Outputs-1, 0 to Group_Sum_Results-1) of SIGNED(Group_Sum_Total_Bits-1 downto 0);
 signal Prod_Buf   : prod_array_t := (others => (others => (others =>'0')));
 SIGNAL SUM_Rd_Addr_Reg  : NATURAL range 0 to Calc_Cycles-1; -- Delay Addresses by one cycle to have sum in separate cycle
@@ -191,7 +191,7 @@ BEGIN
     VARIABLE Weights_Buf : CNN_Weights_T(0 to Calc_Outputs-1, 0 to Calc_Steps-1);
     
     --Variables to write calculated outputs into the Out RAM
-    type     Act_sum_t is array (Calc_Outputs-1 downto 0) of SIGNED(CNN_Value_Resolution-CNN_Value_Negative downto 0);
+    type     Act_sum_t is array (Calc_Outputs-1 downto 0) of SIGNED(CNN_Value_Resolution-1 downto 0);
     VARIABLE Act_sum : Act_sum_t;
     CONSTANT Act_sum_buf_cycles : NATURAL := Calc_Cycles/OUT_RAM_Elements;
     type     Act_sum_buf_t is array (Act_sum_buf_cycles-1 downto 0) of Act_sum_t;
@@ -244,15 +244,15 @@ BEGIN
                     
                     --Apply Activation function
                     IF (Activation = relu) THEN
-                        Act_sum(o) := resize(relu_f(Sum_Reg(o), value_max), CNN_Value_Resolution+1-CNN_Value_Negative);
+                        Act_sum(o) := resize(relu_f(Sum_Reg(o), value_max), CNN_Value_Resolution);
                     ELSIF (Activation = linear) THEN
-                        Act_sum(o) := resize(linear_f(Sum_Reg(o), value_max), CNN_Value_Resolution+1-CNN_Value_Negative);
+                        Act_sum(o) := resize(linear_f(Sum_Reg(o), value_max), CNN_Value_Resolution);
                     ELSIF (Activation = leaky_relu) THEN
-                        Act_sum(o) := resize(leaky_relu_f(Sum_Reg(o), value_max, CNN_Value_Resolution + max_val(Offset, 0) + integer(ceil(log2(real(Inputs + 1))))), CNN_Value_Resolution+1-CNN_Value_Negative);
+                        Act_sum(o) := resize(leaky_relu_f(Sum_Reg(o), value_max, CNN_Value_Resolution + max_val(Offset, 0) + integer(ceil(log2(real(Inputs + 1))))), CNN_Value_Resolution);
                     ELSIF (Activation = step_func) THEN
-                        Act_sum(o) := resize(step_f(Sum_Reg(o)), CNN_Value_Resolution+1-CNN_Value_Negative);
+                        Act_sum(o) := resize(step_f(Sum_Reg(o)), CNN_Value_Resolution);
                     ELSIF (Activation = sign_func) THEN
-                        Act_sum(o) := resize(sign_f(Sum_Reg(o)), CNN_Value_Resolution+1-CNN_Value_Negative);
+                        Act_sum(o) := resize(sign_f(Sum_Reg(o)), CNN_Value_Resolution);
                     END IF;
                 END LOOP;
                 
@@ -275,6 +275,11 @@ BEGIN
                             END LOOP;
                         END LOOP;
                     END IF;
+                END IF;
+
+                --Send output data after all steps of the neural net are done
+                IF (Output_Bias_Reg = Calc_Cycles-1) THEN
+                    Last_Input <= '1';
                 END IF;
             END IF;
             
@@ -307,10 +312,6 @@ BEGIN
                 
                  --If this is the last data, add the bias
                 IF (Cycle_Reg_2 = Input_Cycles-1) THEN
-                    --Send output data after all steps of the neural net are done
-                    IF (Output_Cnt_2 = Calc_Cycles-1) THEN
-                        Last_Input <= '1';
-                    END IF;
                     --For o in 0 to Calc_Outputs-1 LOOP
                     --    Sum_Reg(o)  := shift_with_rounding(sum(o), CNN_Sum_Offset);
                     --END LOOP;
@@ -338,12 +339,12 @@ BEGIN
                     FOR i in 0 to Calc_Steps-1 LOOP
                         IF CNN_Shift_Before_Sum THEN
                             IF CNN_Rounding(0) = '1' THEN
-                                Prod_Sum_Buf := Prod_Sum_Buf + resize(shift_with_rounding(to_signed(iData_Reg(i) * Weights_Buf(o, i), CNN_Value_Resolution+CNN_Weight_Resolution), CNN_Weight_Resolution-Offset-1-CNN_Sum_Offset),bits_max+1);
+                                Prod_Sum_Buf := Prod_Sum_Buf + resize(shift_with_rounding(to_signed(iData_Reg(i) * Weights_Buf(o, i), CNN_Value_Resolution+CNN_Weight_Resolution-1), CNN_Weight_Resolution-Offset-1-CNN_Sum_Offset),bits_max+1);
                             ELSE
-                                Prod_Sum_Buf := Prod_Sum_Buf + resize(shift_bits(to_signed(iData_Reg(i) * Weights_Buf(o, i), CNN_Value_Resolution+CNN_Weight_Resolution), CNN_Weight_Resolution-Offset-1-CNN_Sum_Offset),bits_max+1);
+                                Prod_Sum_Buf := Prod_Sum_Buf + resize(shift_bits(to_signed(iData_Reg(i) * Weights_Buf(o, i), CNN_Value_Resolution+CNN_Weight_Resolution-1), CNN_Weight_Resolution-Offset-1-CNN_Sum_Offset),bits_max+1);
                             END IF;
                         ELSE
-                            Prod_Sum_Buf := Prod_Sum_Buf + to_signed(iData_Reg(i) * Weights_Buf(o, i), CNN_Value_Resolution+CNN_Weight_Resolution);
+                            Prod_Sum_Buf := Prod_Sum_Buf + to_signed(iData_Reg(i) * Weights_Buf(o, i), CNN_Value_Resolution+CNN_Weight_Resolution-1);
                         END IF;
                         
                         IF i = Calc_Steps-1 THEN

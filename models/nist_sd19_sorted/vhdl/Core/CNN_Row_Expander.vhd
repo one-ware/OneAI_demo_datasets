@@ -28,17 +28,21 @@ END CNN_Row_Expander;
 
 ARCHITECTURE BEHAVIORAL OF CNN_Row_Expander IS
 
+attribute ramstyle : string;
+
     --RAM to buffer last row
-    type RAM_T is array (0 to Input_Columns*Input_Cycles-1) of STD_LOGIC_VECTOR((CNN_Value_Resolution+CNN_Value_Negative)*(Input_Values/Input_Cycles)-1 downto 0);
+    type RAM_T is array (0 to Input_Columns*Input_Cycles-1) of STD_LOGIC_VECTOR((CNN_Value_Resolution+CNN_Value_Negative-1)*(Input_Values/Input_Cycles)-1 downto 0);
     SIGNAL Buffer_RAM    : RAM_T;
     SIGNAL RAM_Addr_In   : NATURAL range 0 to Input_Columns*Input_Cycles-1;
     SIGNAL RAM_Addr_Out  : NATURAL range 0 to Input_Columns*Input_Cycles-1;
-    SIGNAL RAM_Data_In   : STD_LOGIC_VECTOR((CNN_Value_Resolution+CNN_Value_Negative)*(Input_Values/Input_Cycles)-1 downto 0);
-    SIGNAL RAM_Data_Out  : STD_LOGIC_VECTOR((CNN_Value_Resolution+CNN_Value_Negative)*(Input_Values/Input_Cycles)-1 downto 0);
+    SIGNAL RAM_Data_In   : STD_LOGIC_VECTOR((CNN_Value_Resolution+CNN_Value_Negative-1)*(Input_Values/Input_Cycles)-1 downto 0);
+    SIGNAL RAM_Data_Out  : STD_LOGIC_VECTOR((CNN_Value_Resolution+CNN_Value_Negative-1)*(Input_Values/Input_Cycles)-1 downto 0);
     
     SIGNAL Delay_Cnt     : NATURAL range 0 to Output_Cycles-1 := 0;
     SIGNAL Reset_Col     : STD_LOGIC := '0';
     SIGNAL oStream_Reg   : CNN_Stream_T;
+	 
+	--attribute ramstyle of BEHAVIORAL : architecture is "MLAB, no_rw_check";
     
 BEGIN
     oStream.Data_CLK <= iStream.Data_CLK;
@@ -67,9 +71,9 @@ BEGIN
             --Save data in RAM as bit vector
             FOR i in 0 to Input_Values/Input_Cycles-1 LOOP
                 IF (CNN_Value_Negative = 0) THEN
-                    RAM_Data_In(CNN_Value_Resolution*(i+1)-1 downto CNN_Value_Resolution*i) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData_Reg(i), CNN_Value_Resolution));
+                    RAM_Data_In((CNN_Value_Resolution-1)*(i+1)-1 downto (CNN_Value_Resolution-1)*i) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData_Reg(i), (CNN_Value_Resolution-1)));
                 ELSE
-                    RAM_Data_In((CNN_Value_Resolution+CNN_Value_Negative)*(i+1)-1 downto (CNN_Value_Resolution+CNN_Value_Negative)*i) <= STD_LOGIC_VECTOR(TO_SIGNED(iData_Reg(i), CNN_Value_Resolution+CNN_Value_Negative));
+                    RAM_Data_In((CNN_Value_Resolution)*(i+1)-1 downto (CNN_Value_Resolution)*i) <= STD_LOGIC_VECTOR(TO_SIGNED(iData_Reg(i), CNN_Value_Resolution));
                 END IF;
             END LOOP;
             
@@ -127,9 +131,9 @@ BEGIN
             --Set output data with values from RAM
             FOR i in 0 to Input_Values/Input_Cycles-1 LOOP
                 IF (CNN_Value_Negative = 0) THEN
-                    oData(i) <= TO_INTEGER(UNSIGNED(RAM_Data_Out(CNN_Value_Resolution*(i+1)-1 downto CNN_Value_Resolution*i)));
+                    oData(i) <= TO_INTEGER(UNSIGNED(RAM_Data_Out((CNN_Value_Resolution-1)*(i+1)-1 downto (CNN_Value_Resolution-1)*i)));
                 ELSE
-                    oData(i) <= TO_INTEGER(SIGNED(RAM_Data_Out((CNN_Value_Resolution+CNN_Value_Negative)*(i+1)-1 downto (CNN_Value_Resolution+CNN_Value_Negative)*i)));
+                    oData(i) <= TO_INTEGER(SIGNED(RAM_Data_Out((CNN_Value_Resolution)*(i+1)-1 downto (CNN_Value_Resolution)*i)));
                 END IF;
             END LOOP;
         END IF;

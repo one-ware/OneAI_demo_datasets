@@ -26,11 +26,13 @@ ENTITY CNN_Pooling_Efficient IS
 END CNN_Pooling_Efficient;
 
 ARCHITECTURE BEHAVIORAL OF CNN_Pooling_Efficient IS
+
+attribute ramstyle : string;
     
     CONSTANT Calc_Steps   : NATURAL := Input_Values/Input_Cycles;    --Values to calculate at once for each pixel in pooling matrix
 
     --RAM for max values of current pooling matrix
-    CONSTANT RAM_Bits  : NATURAL := (CNN_Value_Resolution+CNN_Value_Negative)*Calc_Steps;
+    CONSTANT RAM_Bits  : NATURAL := (CNN_Value_Resolution+CNN_Value_Negative-1)*Calc_Steps;
     CONSTANT RAM_Width : NATURAL := (Input_Columns/Filter_Columns)*Input_Cycles;
     type RAM_T is array (RAM_Width-1 downto 0) of STD_LOGIC_VECTOR(RAM_Bits-1 downto 0);
     SIGNAL Buffer_RAM : RAM_T := (others => (others => '0'));
@@ -46,9 +48,9 @@ ARCHITECTURE BEHAVIORAL OF CNN_Pooling_Efficient IS
     
      --RAM for output values
     CONSTANT OUT_RAM_Elements : NATURAL := Input_Cycles;
-    type OUT_set_t is array (0 to Input_Values/OUT_RAM_Elements-1) of SIGNED(CNN_Value_Resolution downto 0);
+    type OUT_set_t is array (0 to Input_Values/OUT_RAM_Elements-1) of SIGNED(CNN_Value_Resolution-1 downto 0);
     type OUT_ram_t is array (natural range <>) of OUT_set_t;
-    SIGNAL OUT_RAM      : OUT_ram_t(0 to OUT_RAM_Elements-1) := (others => (others => (others => '0')));
+    SIGNAL OUT_RAM      : OUT_ram_t(0 to OUT_RAM_Elements-1);
     SIGNAL OUT_Rd_Addr  : NATURAL range 0 to OUT_RAM_Elements-1;
     SIGNAL OUT_Rd_Data  : OUT_set_t;
     SIGNAL OUT_Wr_Addr  : NATURAL range 0 to OUT_RAM_Elements-1;
@@ -58,6 +60,8 @@ ARCHITECTURE BEHAVIORAL OF CNN_Pooling_Efficient IS
     --Signals to output data with delay
     SIGNAL Out_Value_Cnt_Reg  : NATURAL range 0 to Input_Cycles-1;
     SIGNAL Out_Delay_Cnt      : NATURAL range 0 to Filter_Delay-1 := Filter_Delay-1;
+	 
+--attribute ramstyle of BEHAVIORAL : architecture is "MLAB, no_rw_check";
     
 BEGIN
     
@@ -123,9 +127,9 @@ BEGIN
                 --Read data from RAM
                 for i in 0 to Calc_Steps-1 loop
                     if CNN_Value_Negative = 0 then
-                        RAM_MAX(i) := TO_INTEGER(UNSIGNED(RAM_Data_Out((CNN_Value_Resolution*(i+1))-1 downto CNN_Value_Resolution*i)));
+                        RAM_MAX(i) := TO_INTEGER(UNSIGNED(RAM_Data_Out(((CNN_Value_Resolution-1)*(i+1))-1 downto (CNN_Value_Resolution-1)*i)));
                     else
-                        RAM_MAX(i) := TO_INTEGER(SIGNED(RAM_Data_Out(((CNN_Value_Resolution+1)*(i+1))-1 downto (CNN_Value_Resolution+1)*i)));
+                        RAM_MAX(i) := TO_INTEGER(SIGNED(RAM_Data_Out(((CNN_Value_Resolution)*(i+1))-1 downto (CNN_Value_Resolution)*i)));
                     end if;
                 end loop;
                 
@@ -165,7 +169,7 @@ BEGIN
                         
                         OUT_Wr_Addr <= OUT_Wr_Calc;
                         FOR i in 0 to Calc_Steps-1 LOOP
-                            OUT_Wr_Data(i) <= TO_SIGNED(RAM_MAX(i), CNN_Value_Resolution+1);
+                            OUT_Wr_Data(i) <= TO_SIGNED(RAM_MAX(i), CNN_Value_Resolution);
                         END LOOP;
                     end if;
                 else
@@ -173,9 +177,9 @@ BEGIN
                     RAM_Addr_In        <= RAM_Addr_Out;
                     for i in 0 to Calc_Steps-1 loop
                         if CNN_Value_Negative = 0 then
-                            RAM_Data_In((CNN_Value_Resolution*(i+1))-1 downto CNN_Value_Resolution*i) <= STD_LOGIC_VECTOR(TO_UNSIGNED(RAM_MAX(i), CNN_Value_Resolution));
+                            RAM_Data_In(((CNN_Value_Resolution-1)*(i+1))-1 downto (CNN_Value_Resolution-1)*i) <= STD_LOGIC_VECTOR(TO_UNSIGNED(RAM_MAX(i), CNN_Value_Resolution-1));
                         else
-                            RAM_Data_In(((CNN_Value_Resolution+1)*(i+1))-1 downto (CNN_Value_Resolution+1)*i) <= STD_LOGIC_VECTOR(TO_SIGNED(RAM_MAX(i), CNN_Value_Resolution+1));
+                            RAM_Data_In(((CNN_Value_Resolution)*(i+1))-1 downto (CNN_Value_Resolution)*i) <= STD_LOGIC_VECTOR(TO_SIGNED(RAM_MAX(i), CNN_Value_Resolution));
                         end if;
                     end loop;
                 end if;

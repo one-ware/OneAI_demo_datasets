@@ -11,8 +11,8 @@ END ONEAI_Simulation;
 ARCHITECTURE behavior OF ONEAI_Simulation IS
     COMPONENT CNN
         PORT (
-        iStream_1     : IN CNN_Stream_T;
-        iData_1       : IN CNN_Values_T(0 downto 0);
+        iStream       : IN CNN_Stream_T;
+        iData_1       : IN CNN_Values_T(2 downto 0);
 
         oStream_1     : OUT CNN_Stream_T;
         oData_1       : OUT CNN_Values_T(0 downto 0);
@@ -24,22 +24,22 @@ ARCHITECTURE behavior OF ONEAI_Simulation IS
     SIGNAL CLK : STD_LOGIC;
 
     --Signals for the CNN component
-    SIGNAL iStream_1 : CNN_Stream_T;
-    SIGNAL iData_1 : CNN_Values_T(0 downto 0);
+    SIGNAL iStream : CNN_Stream_T;
+    SIGNAL iData_1 : CNN_Values_T(2 downto 0);
 
     SIGNAL oStream_1 : CNN_Stream_T;
     SIGNAL oData_1 : CNN_Values_T(0 downto 0);
     SIGNAL oCycle_1 : NATURAL;
 
     -- Clock period definition
-    CONSTANT clk_period : time := 10 ns;
+    CONSTANT clk_period : time := 20 ns;
 
 BEGIN
 
     -- Instantiate the CNN component
     uut: CNN
     PORT MAP (
-        iStream_1 => iStream_1,
+        iStream => iStream,
         iData_1 => iData_1,
         oStream_1 => oStream_1,
         oData_1 => oData_1,
@@ -55,18 +55,18 @@ BEGIN
         wait for clk_period/2;
     end process;
     
-    iStream_1.Data_CLK <= CLK;
+    iStream.Data_CLK <= CLK;
 
     -- Stimulus process
     stim_proc: process
     begin
         for i in 0 to 3 loop
             -- Initialize inputs
-            iStream_1.Data_Valid <= '0';
-            iStream_1.Row <= 0;
-            iStream_1.Column <= 0;
-            iStream_1.Filter <= 0;
-            iData_1(0) <= 0;
+            iStream.Data_Valid <= '0';
+            iStream.Row <= 0;
+            iStream.Column <= 0;
+            iStream.Filter <= 0;
+            iData_1(2 downto 0) <= (others => 0);
             
             -- Wait for global reset
             wait for 1000 ns;
@@ -75,16 +75,16 @@ BEGIN
             for row in 0 to 127 loop
                 for col in 0 to 127 loop
                     
-                    iStream_1.Data_Valid <= '1';
-                    iStream_1.Row <= row;
-                    iStream_1.Column <= col;
-                    iStream_1.Filter <= 0;
-                    iData_1(0) <= Image_Example(row, col); -- Example data
+                    iStream.Data_Valid <= '1';
+                    iStream.Row <= row;
+                    iStream.Column <= col;
+                    iStream.Filter <= 0;
+                    iData_1(2 downto 0) <= Image_Example(row, col); -- Example data
                     wait for clk_period;
-                    iStream_1.Data_Valid <= '0';
+                    iStream.Data_Valid <= '0';
                     wait for clk_period;
                     
-                    for j in 0 to 48 loop
+                    for j in 0 to 37 loop
                         wait for clk_period;
                     end loop;
                 end loop;

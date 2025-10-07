@@ -2,7 +2,7 @@
 library IEEE;  
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.numeric_std.all; 
-
+use IEEE.MATH_REAL.ALL;
 
 PACKAGE CNN_Config_Package is
   CONSTANT CNN_Value_Resolution       : NATURAL := 8;
@@ -10,20 +10,19 @@ PACKAGE CNN_Config_Package is
   CONSTANT CNN_Parameter_Resolution   : NATURAL := 8;
   CONSTANT CNN_Input_Columns          : NATURAL := 128;
   CONSTANT CNN_Input_Rows             : NATURAL := 128;
-  CONSTANT CNN_Max_Filters            : NATURAL := 32;
+  CONSTANT CNN_Max_Filters            : NATURAL := 48;
   CONSTANT CNN_Value_Negative         : NATURAL := 0;
+  CONSTANT CNN_Mult_Sum_Group         : NATURAL := 1; -- Some DSP Blocks can multiply and add multiple values at once (e.g. 6x mult & add)
+  CONSTANT CNN_Shift_Before_Sum       : BOOLEAN := True; -- Logic Elements can be reduced if the multiplication result is shifted before addition (True), but this can lower the f_max. Shifting after addition can cause a different rounding behaviour
 
+  subtype CNN_Value_T       is NATURAL range 0 to 2**(CNN_Value_Resolution-1)-1;
+
+type CNN_Values_T         is array (NATURAL range <>) of CNN_Value_T;
+type CNN_Value_Matrix_T   is array (NATURAL range <>, NATURAL range <>, NATURAL range <>) of CNN_Value_T;
 
 CONSTANT CNN_Sum_Offset             : NATURAL := 2; -- Save more bits for the sum to get higher resolution
 CONSTANT CNN_Rounding               : STD_LOGIC_VECTOR := "111"; -- 1. Bit: round each addition, 2. Bit: round sum division, 3. Bit: round whole result after bias addition
 CONSTANT CNN_Efficient_Rounding     : BOOLEAN := True;
-
-CONSTANT CNN_Mult_Sum_Group         : INTEGER := 1; -- Some DSP Blocks can multiply and add multiple values at once (e.g. 6x mult & add)
-CONSTANT CNN_Shift_Before_Sum       : BOOLEAN := True; -- Logic Elements can be reduced if the multiplication result is shifted before addition (True), but this can lower the f_max. Shifting after addition can cause a different rounding behaviour 
-
-subtype CNN_Value_T       is NATURAL range 0 to 2**(CNN_Value_Resolution)-1;
-type CNN_Values_T         is array (NATURAL range <>) of CNN_Value_T;
-type CNN_Value_Matrix_T   is array (NATURAL range <>, NATURAL range <>, NATURAL range <>) of CNN_Value_T;
 
 subtype CNN_Weight_T      is INTEGER range (-1)*(2**(CNN_Weight_Resolution-1)-1) to 2**(CNN_Weight_Resolution-1)-1;
 type CNN_Weights_T        is array (NATURAL range <>, NATURAL range <>) of CNN_Weight_T;
@@ -41,6 +40,7 @@ END RECORD CNN_Stream_T;
 
 type Activation_T is (relu, linear, leaky_relu, step_func, sign_func);
 type Padding_T is (valid, same);
+type Threshold_T is (binary, tozero, toone, tozero_inv, toone_inv);
 
 CONSTANT leaky_relu_mult : CNN_Weight_T := (2**(CNN_Weight_Resolution-1))/10;
 
@@ -62,6 +62,7 @@ FUNCTION shift_with_rounding(value : unsigned; shift_amount: integer) return uns
 FUNCTION shift_bits(value : signed; shift_amount: integer) return signed;
 FUNCTION shift_bits(value : unsigned; shift_amount: integer) return unsigned;
 FUNCTION adjust_offset(value : integer; offset : integer) return integer;
+FUNCTION unsigned_multiply_efficient(value : natural; factor: real; resolution_val  : natural := CNN_Weight_Resolution-1; resolution_fac  : natural := CNN_Weight_Resolution-1) return natural;
 
 END PACKAGE CNN_Config_Package;
 
@@ -336,9 +337,25 @@ begin
     end if;
 end function;
 
+function unsigned_multiply_efficient(
+    value           : natural;
+    factor          : real; -- should be an positive constant
+    resolution_val  : natural := CNN_Weight_Resolution-1;
+    resolution_fac  : natural := CNN_Weight_Resolution-1
+) return natural is
+    variable result         : natural range 0 to 2**(resolution_val-1 + 2*resolution_fac);
+    variable n_factor       : unsigned(2*resolution_fac downto 0);
+    variable value_unsigned : unsigned(resolution_val downto 0);
+begin
+    value_unsigned := to_unsigned(value, resolution_val+1);
+    if log2(factor)/10.0-floor(log2(factor)/10.0) = 0.0 then                        -- if factor of 2
+        result := to_integer(shift_bits(value_unsigned, integer(log2(factor))));    -- do simple shift
+    else -- do it the hard way
+        n_factor := to_unsigned(integer(factor * real(2 ** (CNN_Weight_Resolution-1))), 2*resolution_fac + 1); -- shift left
+        result := to_integer(shift_right(value_unsigned * n_factor, CNN_Weight_Resolution-1)); -- multiply and shift back
+    end if;
+    return result;--(CNN_Value_Resolution + resolution downto 0);
+end function;
+
 
 END PACKAGE BODY;
-
-
-
-

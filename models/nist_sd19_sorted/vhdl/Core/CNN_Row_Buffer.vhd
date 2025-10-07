@@ -35,6 +35,8 @@ ENTITY CNN_Row_Buffer IS
 END CNN_Row_Buffer;
 
 ARCHITECTURE BEHAVIORAL OF CNN_Row_Buffer IS
+
+attribute ramstyle : string;
     
     --If the input values only have 2 columns, the row buffer needs one more row to always have the needed data saved
     FUNCTION RAM_Rows_F ( Filter_Rows : NATURAL; Input_Columns : NATURAL) RETURN  NATURAL IS
@@ -48,7 +50,7 @@ END FUNCTION;
 
 --RAM dimensions
 CONSTANT RAM_Rows  : NATURAL := RAM_Rows_F(Filter_Rows, Input_Columns);
-CONSTANT RAM_Bits  : NATURAL := (CNN_Value_Resolution+CNN_Value_Negative)*(Input_Values/Value_Cycles);
+CONSTANT RAM_Bits  : NATURAL := (CNN_Value_Resolution+CNN_Value_Negative-1)*(Input_Values/Value_Cycles);
 CONSTANT RAM_Width : NATURAL := Input_Columns*RAM_Rows*Value_Cycles;
 
 --RAM to save last rows
@@ -71,6 +73,21 @@ SIGNAL Out_Column_Center    : NATURAL range 0 to Input_Columns-1 := 0;
 
 SIGNAL oData_En_Reg : STD_LOGIC := '0';
 SIGNAL RAM_Out_Row_Center : NATURAL range 0 to RAM_Rows-1;
+
+--Delay Output by one cycle for address calculation
+SIGNAL oStream_Buf  : CNN_Stream_T;
+SIGNAL oRow_Buf     : NATURAL range 0 to Filter_Rows-1;
+SIGNAL oColumn_Buf  : NATURAL range 0 to Filter_Columns-1;
+SIGNAL oInput_Buf   : NATURAL range 0 to Value_Cycles-1;
+SIGNAL oData_En_Buf : STD_LOGIC := '0';
+
+SIGNAL Row_Calc_Buf       : INTEGER range (-1)*(Filter_Rows)/2 to RAM_Rows+(Filter_Rows-1)/2-1;
+SIGNAL Column_Calc_Buf    : INTEGER range (-1)*(Filter_Columns)/2 to Input_Columns+(Filter_Columns-1)/2-1 := 0;
+SIGNAL Value_Calc_Buf     : NATURAL range 0 to Value_Cycles-1 := 0;
+
+CONSTANT Strides_Offset   : NATURAL := Bool_Select(Padding = same and Strides > 1, 1, 0);
+
+--attribute ramstyle of BEHAVIORAL : architecture is "MLAB, no_rw_check";
 
 BEGIN
     
@@ -154,17 +171,17 @@ BEGIN
             IF (Input_Cycles = Value_Cycles) THEN
                 --Same values at a time come in as values that are sent out
                 FOR i in 0 to Input_Values/Input_Cycles-1 LOOP
-                    RAM_Data_In((i+1)*(CNN_Value_Resolution+CNN_Value_Negative)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative)) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData(i), (CNN_Value_Resolution+CNN_Value_Negative)));
+                    RAM_Data_In((i+1)*(CNN_Value_Resolution+CNN_Value_Negative-1)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative-1)) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData(i), (CNN_Value_Resolution+CNN_Value_Negative-1)));
                 END LOOP;
             ELSIF (Input_Cycles < Value_Cycles) THEN
                 --More values at a time come in as values that are sent out
                 FOR i in 0 to Input_Values/Value_Cycles-1 LOOP
-                    RAM_Data_In((i+1)*(CNN_Value_Resolution+CNN_Value_Negative)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative)) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData(i+RAM_In_Data_Part*(Input_Values/Value_Cycles)), (CNN_Value_Resolution+CNN_Value_Negative)));
+                    RAM_Data_In((i+1)*(CNN_Value_Resolution+CNN_Value_Negative-1)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative-1)) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData(i+RAM_In_Data_Part*(Input_Values/Value_Cycles)), (CNN_Value_Resolution+CNN_Value_Negative-1)));
                 END LOOP;
             ELSE
                 --Less values at a time come in as values that are sent out
                 FOR i in 0 to Input_Values/Input_Cycles-1 LOOP
-                    RAM_Data_In((i+1+RAM_In_Data_Part*(Input_Values/Input_Cycles))*(CNN_Value_Resolution+CNN_Value_Negative)-1 downto (i+RAM_In_Data_Part*(Input_Values/Input_Cycles))*(CNN_Value_Resolution+CNN_Value_Negative)) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData(i), (CNN_Value_Resolution+CNN_Value_Negative)));
+                    RAM_Data_In((i+1+RAM_In_Data_Part*(Input_Values/Input_Cycles))*(CNN_Value_Resolution+CNN_Value_Negative-1)-1 downto (i+RAM_In_Data_Part*(Input_Values/Input_Cycles))*(CNN_Value_Resolution+CNN_Value_Negative-1)) <= STD_LOGIC_VECTOR(TO_UNSIGNED(iData(i), (CNN_Value_Resolution+CNN_Value_Negative-1)));
                 END LOOP;
             END IF;
             
@@ -216,7 +233,11 @@ BEGIN
             END IF;
             
             --Calculate the address from that the data has to be read
-            RAM_Addr_Out <= (((RAM_Out_Row_Center+Row_Cntr) mod RAM_Rows) * Input_Columns + (Out_Column_Center+Column_Cntr) mod Input_Columns) * Value_Cycles + Value_Cntr;
+            Row_Calc_Buf    <= RAM_Out_Row_Center+Row_Cntr;
+            Column_Calc_Buf <= Out_Column_Center+Column_Cntr;
+            Value_Calc_Buf  <= Value_Cntr;
+            
+            RAM_Addr_Out <= ((Row_Calc_Buf mod RAM_Rows) * Input_Columns + (Column_Calc_Buf mod Input_Columns)) * Value_Cycles + Value_Calc_Buf;
             
             --Set center position as column and row for the output stream
             oStream_Reg.Column <= Out_Column_Center;
@@ -235,13 +256,15 @@ BEGIN
                 oData_En_Reg <= '1';
             END IF;
             
+            oData_En_Buf <= oData_En_Reg;
+            
             --Set the output data dependant on the padding setting
             IF (Padding = valid) THEN  --No padding
                 --Check if the matrix is inside of the image and skip rows and columns depending on the strides
                 IF (Valid_Reg = '1'
                     AND Out_Column_Center >= Filter_Columns/2 AND Out_Column_Center < Input_Columns-(Filter_Columns-1)/2
                     AND Out_Row_Center >= Filter_Rows/2 AND Out_Row_Center < Input_Rows-(Filter_Rows-1)/2
-                    AND (Out_Column_Center - Filter_Columns/2) MOD Strides = 0 AND (Out_Row_Center - Filter_Rows/2) MOD Strides = 0) THEN
+                    AND (Out_Column_Center - Filter_Columns/2) MOD Strides = Strides_Offset AND (Out_Row_Center - Filter_Rows/2) MOD Strides = Strides_Offset) THEN
                     oStream_Reg.Data_Valid <= '1';
                 ELSE
                     oStream_Reg.Data_Valid <= '0';
@@ -250,25 +273,21 @@ BEGIN
                 --Set output stream and data
                 IF (oStream_Reg.Data_Valid = '1') THEN
                     --Correct column and row by rows and columns that are ignored with the missing padding
-                    oStream.Column     <= (oStream_Reg.Column - Filter_Columns/2)/Strides;
-                    oStream.Row        <= (oStream_Reg.Row - Filter_Rows/2)/Strides;
-                    oStream.Filter     <= oStream_Reg.Filter;
-                    oStream.Data_Valid <= '1';
+                    oStream_Buf.Column     <= (oStream_Reg.Column - Filter_Columns/2);
+                    oStream_Buf.Row        <= (oStream_Reg.Row - Filter_Rows/2);
+                    oStream_Buf.Filter     <= oStream_Reg.Filter;
+                    oStream_Buf.Data_Valid <= '1';
                     
-                    oRow               <= oRow_Reg;
-                    oColumn            <= oColumn_Reg;
-                    oInput             <= oInput_Reg;
+                    oRow_Buf               <= oRow_Reg;
+                    oColumn_Buf            <= oColumn_Reg;
+                    oInput_Buf             <= oInput_Reg;
                     
-                    --Set the output data with the data from the RAM
-                    FOR i in 0 to Input_Values/Value_Cycles-1 LOOP
-                        oData(i) <= TO_INTEGER(UNSIGNED(RAM_Data_Out((i+1)*(CNN_Value_Resolution+CNN_Value_Negative)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative))));
-                    END LOOP;
                 ELSE
-                    oStream.Data_Valid <= '0';
+                    oStream_Buf.Data_Valid <= '0';
                 END IF;
             ELSE                    --Add zero padding
                 --skip rows and columns depending on the strides
-                IF (Valid_Reg = '1' AND Out_Column_Center MOD Strides = 0 AND Out_Row_Center MOD Strides = 0) THEN
+                IF (Valid_Reg = '1' AND Out_Column_Center MOD Strides = Strides_Offset AND Out_Row_Center MOD Strides = Strides_Offset) THEN
                     oStream_Reg.Data_Valid <= '1';
                 ELSE
                     oStream_Reg.Data_Valid <= '0';
@@ -276,32 +295,43 @@ BEGIN
                 
                 --Set output stream and data
                 IF (oStream_Reg.Data_Valid = '1') THEN
-                    oStream.Column     <= oStream_Reg.Column/Strides;
-                    oStream.Row        <= oStream_Reg.Row/Strides;
-                    oStream.Filter     <= oStream_Reg.Filter;
-                    oStream.Data_Valid <= '1';
+                    oStream_Buf.Column     <= oStream_Reg.Column;
+                    oStream_Buf.Row        <= oStream_Reg.Row;
+                    oStream_Buf.Filter     <= oStream_Reg.Filter;
+                    oStream_Buf.Data_Valid <= '1';
                     
-                    oRow               <= oRow_Reg;
-                    oColumn            <= oColumn_Reg;
-                    oInput             <= oInput_Reg;
+                    oRow_Buf               <= oRow_Reg;
+                    oColumn_Buf            <= oColumn_Reg;
+                    oInput_Buf             <= oInput_Reg;
                     
-                    --Set the output data with the data from the RAM
-                    FOR i in 0 to Input_Values/Value_Cycles-1 LOOP
-                        oData(i) <= TO_INTEGER(UNSIGNED(RAM_Data_Out((i+1)*(CNN_Value_Resolution+CNN_Value_Negative)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative))));
-                    END LOOP;
                 ELSE
-                    oStream.Data_Valid <= '0';
+                    oStream_Buf.Data_Valid <= '0';
                 END IF;
                 
-                --Add padding data
-                IF (oData_En_Reg = '0') THEN
-                    oData <= (others => 0);
-                END IF;
             END IF;
             
             iStream_Row_Reg     := iStream.Row;
             iStream_Column_Reg  := iStream.Column;
             iStream_Value_Reg   := iStream.Filter;
+            
+            oStream.Column     <= oStream_Buf.Column/Strides;
+            oStream.Row        <= oStream_Buf.Row/Strides;
+            oStream.Filter     <= oStream_Buf.Filter;
+            oStream.Data_Valid <= oStream_Buf.Data_Valid;
+            
+            oRow    <= oRow_Buf;
+            oColumn <= oColumn_Buf;
+            oInput  <= oInput_Buf;
+            
+            IF oStream_Buf.Data_Valid = '1' THEN
+                FOR i in 0 to Input_Values/Value_Cycles-1 LOOP
+                    oData(i) <= TO_INTEGER(UNSIGNED(RAM_Data_Out((i+1)*(CNN_Value_Resolution+CNN_Value_Negative-1)-1 downto i*(CNN_Value_Resolution+CNN_Value_Negative-1))));
+                END LOOP;
+            END IF;
+            
+            IF (Padding /= valid AND oData_En_Buf = '0') THEN
+                oData <= (others => 0);
+            END IF;
         END IF;
     END PROCESS;
     
