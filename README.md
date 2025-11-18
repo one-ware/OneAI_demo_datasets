@@ -6,12 +6,16 @@ This repository contains a collection of datasets as well as trained models that
 ## Datasets in this repository
 ### PepsiCo Lab Potato Chips Quality Control
 - Source: Usama Navid on [kaggle](https://www.kaggle.com/datasets/concaption/pepsico-lab-potato-quality-control)
-- Link to the [Demo](https://one-ware.com/docs/one-ai/potato-chip-demo)
+- Link to the [Demo](https://one-ware.com/docs/one-ai/tutorials/potato-chip-demo)
 
 ### NIST Special Database 19
 - Source: [NIST](https://www.nist.gov/srd/nist-special-database-19)
-- Link to the [Demo](https://one-ware.com/docs/one-ai/handwritten-digits-demo)
+- Link to the [Demo](https://one-ware.com/docs/one-ai/tutorials/handwritten-digits-demo)
 
 ### 6 Sided Dice Dataset
 - Source: [Roboflow](https://public.roboflow.com/object-detection/dice)
-- Link to the [Demo](https://one-ware.com/docs/one-ai/dice-demo)
+- Link to the [Demo](https://one-ware.com/docs/one-ai/tutorials/dice-demo)
+
+### Synthetic Birds and Drones Dataset
+- Source: [pixabay](https://pixabay.com/)
+- Link to the [Demo](https://one-ware.com/docs/one-ai/tutorials/difference-image-demo)
