@@ -19,3 +19,7 @@ This repository contains a collection of datasets as well as trained models that
 ### Synthetic Birds and Drones Dataset
 - Source: [pixabay](https://pixabay.com/)
 - Link to the [Demo](https://one-ware.com/docs/one-ai/tutorials/difference-image-demo)
+
+### One Ware Cups
+- Source: Self-created dataset
+- Link to the [Demo](https://one-ware.com/docs/one-ai/tutorials/teacup-print-detection)
